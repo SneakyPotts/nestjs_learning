@@ -3,8 +3,11 @@ import { UserEntity } from '@app/user/user.entity';
 import { CreateArticleDto } from '@app/article/dto/article.dto';
 import { ArticleEntity } from '@app/article/article.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DeleteResult, Repository } from 'typeorm';
-import { ArticleResponsInterface } from '@app/article/types/articleRespons.interface';
+import { DataSource, DeleteResult, Repository } from 'typeorm';
+import {
+  ArticleResponseInterface,
+  ArticlesResponseInterface,
+} from '@app/article/types/articleResponseInterface';
 import slugify from 'slugify';
 
 @Injectable()
@@ -12,7 +15,53 @@ export class ArticleService {
   constructor(
     @InjectRepository(ArticleEntity)
     private readonly articleRepository: Repository<ArticleEntity>,
+    @InjectRepository(UserEntity)
+    private readonly userRepository: Repository<UserEntity>,
+    private readonly dataSource: DataSource,
   ) {}
+
+  async findAllArticles(
+    currentUserId: number,
+    query: any,
+  ): Promise<ArticlesResponseInterface> {
+    const queryBuilder = this.dataSource
+      .getRepository(ArticleEntity)
+      .createQueryBuilder('articles')
+      .leftJoinAndSelect('articles.author', 'author');
+
+    queryBuilder.orderBy('articles.createdAt', 'DESC');
+
+    const articlesCount = await queryBuilder.getCount();
+
+    if (query.limit) {
+      queryBuilder.limit(parseInt(query.limit));
+    }
+
+    if (query.offset) {
+      queryBuilder.offset(parseInt(query.offset));
+    }
+
+    if (query.author) {
+      const author = await this.userRepository.findOne({
+        where: {
+          username: query.author,
+        },
+      });
+      queryBuilder.andWhere('articles.author.id = :authorId', {
+        authorId: author.id,
+      });
+    }
+
+    if (query.tag) {
+      queryBuilder.andWhere('articles.tagList LIKE :tag', {
+        tag: `%${query.tag}%`,
+      });
+    }
+
+    const articles = await queryBuilder.getMany();
+
+    return { articles, articlesCount };
+  }
 
   async createArticle(
     currentUser: UserEntity,
@@ -77,7 +126,34 @@ export class ArticleService {
     return await this.articleRepository.delete({ slug });
   }
 
-  buildArticleResponse(article: ArticleEntity): ArticleResponsInterface {
+  async addArticleToFavorites(
+    slug: string,
+    currentUserId: number,
+  ): Promise<ArticleEntity> {
+    const article = await this.findBySlug(slug);
+    const user = await this.userRepository.findOne({
+      where: { id: currentUserId },
+      relations: ['favorites'],
+    });
+
+    const isFavorite = user.favorites.some(
+      (articleInFavorites) => articleInFavorites.id === article.id,
+    );
+
+    console.log(article);
+
+    if (!isFavorite) {
+      user.favorites.push(article);
+      article.favoritesCount++;
+
+      await this.userRepository.save(user);
+      await this.articleRepository.save(article);
+    }
+
+    return article;
+  }
+
+  buildArticleResponse(article: ArticleEntity): ArticleResponseInterface {
     return {
       article,
     };

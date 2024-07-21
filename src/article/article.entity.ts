@@ -2,12 +2,13 @@ import {
   BeforeUpdate,
   Column,
   Entity,
+  ManyToMany,
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { UserEntity } from '@app/user/user.entity';
 
-@Entity()
+@Entity({ name: 'articles' })
 export class ArticleEntity {
   @PrimaryGeneratedColumn()
   id: number;
